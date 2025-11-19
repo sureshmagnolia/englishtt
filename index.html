@@ -1,0 +1,1537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Department Timetable (Combined View)</title>
+    <style>
+        :root {
+            --border-color: #dee2e6;
+            --header-bg: #005a9c;
+            --header-text: #ffffff;
+            --highlight-bg: #fff3cd; /* Yellow (Old, now fallback) */
+            --highlight-day-hour: #e6f7ec; /* Light Green */
+            --highlight-current: #dc3545; /* Dark Red */
+            --highlight-next: #fd7e14; /* Dark Orange */
+            --highlight-hour-bg: #4c00b0; /* Dark Violet */
+            --day-border-color: #005a9c;
+            --day-header-bg: #e9ecef;
+            --class-name-bg: #fdfdfd;
+            --class-border: #005a9c;
+            
+            /* --- NEW HIGHLIGHT COLORS --- */
+            --highlight-primary: #ffebee; /* Light Pink */
+            --highlight-assistant: #e0f7ff; /* Light Blue */
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            color: #212529;
+        }
+        /* --- Fullscreen Loader --- */
+        #full-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            font-size: 1.5em;
+            font-weight: 500;
+            color: var(--header-bg);
+            flex-direction: column;
+            gap: 15px;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--header-bg);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* --- End Loader --- */
+        .timetable-container {
+            max-width: 100%;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            padding: 20px;
+            /* Hide container until loader is done */
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.3s ease-in;
+        }
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid var(--header-bg);
+        }
+        .main-title {
+            font-size: 1.5em;
+            color: var(--header-bg);
+            line-height: 1.3;
+            margin: 0;
+        }
+        #mini-clock {
+            font-size: 1.75em;
+            font-weight: 600;
+            color: var(--header-bg);
+            white-space: nowrap;
+            font-family: 'Consolas', 'Menlo', 'monospace';
+            padding-left: 20px;
+        }
+        /* --- Top Controls Bar (Refresh/Faculty) --- */
+        .top-controls-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap; /* Allow wrapping on small screens */
+            gap: 15px;
+        }
+        #refresh-button {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            background-color: var(--day-header-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 0.9em;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        #refresh-button:hover {
+            background-color: #dcdcdc;
+        }
+        #refresh-button svg {
+            width: 16px;
+            height: 16px;
+            transition: transform 0.5s;
+        }
+        #refresh-button.loading svg {
+            animation: spin 1s linear infinite;
+        }
+        #last-updated {
+            font-size: 0.8em;
+            color: #6c757d;
+            text-align: right;
+            padding-left: 10px;
+        }
+        .controls {
+            display: flex;
+            justify-content: flex-end;
+        }
+        /* --- End Top Controls --- */
+        .sub-title {
+            text-align: center;
+            color: #343a40;
+            margin-top: 0;
+            margin-bottom: 20px;
+        }
+        .controls label {
+            font-weight: 500;
+            margin-right: 10px;
+            align-self: center;
+        }
+        .controls select {
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 0.9em;
+            background-color: #fff;
+        }
+        /* --- HYBRID: Personal View Styles --- */
+        #personal-view-container {
+            background-color: #fdfdfd;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+            display: none; /* Hidden by default */
+            position: relative;
+        }
+        #personal-view-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        #personal-view-title {
+            color: var(--header-bg);
+            margin: 0;
+            font-size: 1.3em;
+            font-weight: 600;
+        }
+        #close-personal-view {
+            font-size: 1.5em;
+            font-weight: 600;
+            color: #aaa;
+            background: none;
+            border: none;
+            cursor: pointer;
+            line-height: 1;
+            padding: 0 5px;
+        }
+        #close-personal-view:hover {
+            color: var(--highlight-current);
+        }
+        /* Desktop: Horizontal Table */
+        #personal-view-scroll-desktop {
+            display: block; /* Show on desktop */
+            margin-top: 15px;
+        }
+        #personal-view-list-mobile {
+            display: none; /* Hide on desktop */
+        }
+        #personal-view-table {
+            width: 100%;
+            min-width: 600px;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        #personal-view-table th, 
+        #personal-view-table td {
+            border: 1px solid var(--border-color);
+            padding: 8px;
+            text-align: center;
+            vertical-align: middle;
+        }
+        #personal-view-table th {
+            background-color: #495057;
+            color: #ffffff;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        #personal-view-table td {
+            font-size: 0.8em;
+            height: 60px;
+        }
+        /* Mobile: Vertical List */
+        #personal-view-list-mobile {
+            display: none; /* Hidden by default, shown by media query */
+            grid-template-columns: 1fr;
+            gap: 8px;
+            margin-top: 15px;
+        }
+        .personal-period {
+            display: flex;
+            align-items: center;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            overflow: hidden;
+            font-size: 0.9em;
+            background-color: #fdfdfd;
+        }
+        .personal-period-time {
+            padding: 12px 15px;
+            font-weight: 600;
+            background-color: var(--day-header-bg);
+            border-right: 1px solid var(--border-color);
+            min-width: 110px;
+            text-align: center;
+        }
+        .personal-period-details {
+            padding: 12px 15px;
+            flex-grow: 1;
+        }
+        .personal-period-details .empty-cell { 
+             color: #adb5bd;
+            font-style: italic;
+        }
+        
+        /* Highlighting (works for both) */
+        .personal-period-time.highlight-hour,
+        #personal-view-table th.highlight-hour {
+            background-color: var(--highlight-hour-bg) !important;
+            color: #ffffff !important;
+        }
+
+        /* --- NEW: Personal View Highlights --- */
+        .personal-period-details.highlight-primary,
+        #personal-view-table td.highlight-primary {
+            background-color: var(--highlight-primary) !important;
+        }
+        .personal-period-details.highlight-assistant,
+        #personal-view-table td.highlight-assistant {
+            background-color: var(--highlight-assistant) !important;
+        }
+        .personal-period-details.highlight, /* Fallback */
+        #personal-view-table td.highlight {
+            background-color: var(--highlight-bg) !important;
+        }
+        /* --- END NEW --- */
+
+
+        .personal-period-details.highlight-current-period,
+        #personal-view-table td.highlight-current-period {
+            background-color: var(--highlight-current) !important;
+            color: #ffffff !important;
+        }
+        .personal-period-details.highlight-current-period i,
+        .personal-period-details.highlight-current-period b,
+        #personal-view-table td.highlight-current-period i,
+        #personal-view-table td.highlight-current-period b { 
+             color: #ffffff !important;
+        }
+        .personal-period-details.highlight-next-period,
+        #personal-view-table td.highlight-next-period {
+            background-color: var(--highlight-next) !important;
+            color: #ffffff !important;
+        }
+        .personal-period-details.highlight-next-period i,
+        .personal-period-details.highlight-next-period b,
+        #personal-view-table td.highlight-next-period i,
+        #personal-view-table td.highlight-next-period b { 
+             color: #ffffff !important;
+        }
+        
+        #personal-view-message {
+            text-align: center; 
+             padding: 20px; 
+             font-style: italic;
+            color: #6c757d;
+            display: none; /* Hidden by default */
+        }
+        /* --- End of Personal View Styles --- */
+
+        .table-scroll-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            margin-top: 10px;
+        }
+        table {
+            width: 100%;
+            min-width: 1000px; /* Force horizontal scroll on small screens */
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        th, td {
+            border: 1px solid var(--border-color);
+            padding: 4px; /* Reduced padding */
+            text-align: center;
+            vertical-align: middle;
+            min-height: 50px; /* Reduced min-height */
+            line-height: 1.25; /* Tighter line-height */
+            transition: background-color 0.3s ease;
+            font-size: 0.8em; /* Slightly smaller font for better fit */
+        }
+        td b {
+            font-weight: 500;
+            display: block; /* Makes it a block element */
+            margin-bottom: 0px; /* No margin */
+            line-height: 1.2; /* Tight line height */
+        }
+        td i {
+            font-style: normal;
+            color: #495057;
+            font-size: 0.95em;
+            line-height: 1.2; /* Tight line height */
+        }
+        td hr {
+            margin: 2px 0; /* Minimal margin */
+            border: 0;
+            border-top: 1px solid #eee;
+        }
+        thead th {
+            background-color: var(--header-bg);
+            color: var(--header-text);
+            font-weight: 600;
+            font-size: 0.85em;
+            padding: 8px 4px; /* Reduced padding */
+            vertical-align: middle;
+            /* Sticky Header */
+            position: sticky;
+            top: 0;
+            z-index: 3;
+        }
+        #table-wrapper thead th:first-child {
+            width: 4%;
+        }
+        #table-wrapper thead th:nth-child(2) { 
+             width: 10.5%; /* Halved from 21% */
+        }
+        #table-wrapper thead th:first-child,
+        #table-wrapper thead th:nth-child(2) {
+            text-align: left;
+            padding-left: 8px; /* Reduced padding */
+        }
+        #table-wrapper thead th:first-child {
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+            text-align: center;
+            padding: 10px 5px;
+        }
+        #table-wrapper thead th:first-child {
+            left: 0;
+        }
+        #table-wrapper thead th:nth-child(2) {
+            left: 4%; /* Must match new width: 4% */
+        }
+        #table-wrapper thead th:not(:first-child):not(:nth-child(2)) {
+            width: 17.1%; /* Increased from 15% to take up space */
+        }
+
+        tbody tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        td.day-header {
+            font-weight: 600;
+            font-size: 1em;
+            text-align: left;
+            padding-left: 8px; /* Reduced padding */
+            background-color: var(--day-header-bg);
+            vertical-align: middle;
+            border: none;
+            border-bottom: 2px solid var(--day-border-color);
+            border-top: 2px solid var(--day-border-color);
+            /* Sticky Day Column */
+            position: sticky;
+            left: 0;
+            z-index: 1;
+            /* Vertical text */
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+            text-align: center;
+            padding: 10px 5px;
+            font-size: 0.9em;
+        }
+        tr.day-start td { 
+             border-top: 2px solid var(--day-border-color);
+        }
+        tr.day-end td { 
+             border-bottom: 2px solid var(--day-border-color);
+        }
+        tr.day-row td {
+            border-left: 2px solid var(--day-border-color);
+            border-right: 2px solid var(--day-border-color);
+        }
+        tr.day-row td.day-header {
+            border-right: 1px solid var(--border-color);
+        }
+        tr.day-row:not(.day-start) td {
+            border-top: 1px solid var(--border-color);
+        } 
+         tr.day-row:not(.day-end) td {
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        td.class-name {
+            font-weight: 600;
+            text-align: left;
+            padding-left: 8px; /* Reduced padding */
+            background-color: var(--class-name-bg);
+            border-left: 3px solid var(--class-border);
+            font-size: 0.85em;
+            /* Sticky Class Column */
+            position: sticky;
+            left: 4%; /* Must match new width: 4% */
+            z-index: 1;
+        }
+        
+        tbody tr:nth-child(even) td.day-header {
+            background-color: var(--day-header-bg);
+        }
+        tbody tr:nth-child(even) td.class-name {
+            background-color: var(--class-name-bg);
+        }
+        
+        td.empty-cell {
+            background-color: #fafafa;
+            font-style: italic;
+            color: #adb5bd;
+        }
+        
+        #error-container {
+            padding: 15px;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: none; /* Hidden by default */
+        }
+
+        /* --- MODIFIED: Main Table Highlights --- */
+        .highlight { /* Fallback yellow */
+            background-color: var(--highlight-bg) !important;
+            font-weight: 500;
+        }
+        .highlight-primary {
+            background-color: var(--highlight-primary) !important;
+            font-weight: 500;
+        }
+        .highlight-assistant {
+            background-color: var(--highlight-assistant) !important;
+            font-weight: 500;
+        }
+        /* --- END MODIFIED --- */
+        
+        .highlight-day {
+            background-color: var(--highlight-day-hour) !important;
+        }
+        
+        .highlight-hour {
+            background-color: var(--highlight-hour-bg) !important;
+            color: #ffffff !important;
+        }
+        
+        .highlight-current-period {
+            background-color: var(--highlight-current) !important;
+            color: #ffffff !important;
+        }
+        .highlight-current-period i,
+        .highlight-current-period b { 
+             color: #ffffff !important;
+        }
+        
+        .highlight-next-period {
+            background-color: var(--highlight-next) !important;
+            color: #ffffff !important;
+        }
+        .highlight-next-period i,
+        .highlight-next-period b { 
+             color: #ffffff !important;
+        }
+
+        @media (max-width: 768px) {
+            body { padding: 5px; }
+            .timetable-container { padding: 10px; }
+            
+            /* --- HYBRID SWAP --- */
+            #personal-view-scroll-desktop {
+                display: none; /* Hide desktop table on mobile */
+            }
+            #personal-view-list-mobile {
+                display: grid; /* Show mobile list */
+            }
+            /* --- End Hybrid Swap --- */
+
+            /* --- NEW: Hide main table on mobile --- */
+            #table-wrapper, .sub-title {
+                display: none;
+            }
+
+            .header-bar {
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+            }
+            .main-title {
+                font-size: 1.2em;
+                margin-bottom: 10px;
+            }
+            #mini-clock {
+                font-size: 1.5em;
+                padding-left: 0;
+            }
+            
+            .top-controls-bar {
+                flex-direction: column-reverse; /* Put faculty select on top */
+                align-items: stretch;
+            }
+            .controls {
+                justify-content: stretch;
+            }
+            .controls select {
+                flex-grow: 1;
+            }
+            
+            table {
+                font-size: 0.75em;
+                min-width: 800px;
+            }
+            #table-wrapper thead th:first-child,
+            td.day-header {
+                width: 5%; /* Narrower width for mobile */
+            }
+            #table-wrapper thead th:nth-child(2),
+            td.class-name {
+                width: 10%; 
+                 left: 5%; /* Adjusted sticky position */
+            }
+        }
+        
+        @media print {
+            @page {
+                size: A4 landscape;
+                margin: 0.5cm;
+            }
+            body {
+                padding: 0;
+                margin: 0;
+                background-color: #fff;
+                -webkit-print-color-adjust: exact; /* For Chrome */
+                color-adjust: exact; /* Standard */
+            }
+            .timetable-container {
+                box-shadow: none;
+                border-radius: 0;
+                padding: 0;
+                width: 100%;
+                max-width: 100%;
+                overflow: visible;
+                visibility: visible; /* Ensure it's visible for print */
+                opacity: 1;
+            }
+            
+            #full-loader,
+            .top-controls-bar, 
+             .header-bar, 
+             .sub-title,
+            #error-container {
+                display: none; /* Hide controls and all titles when printing */
+            }
+            
+            #personal-view-container {
+                display: none !important;
+            }
+            
+            .table-scroll-wrapper {
+                overflow: visible;
+                border: none;
+            }
+            table {
+                table-layout: fixed;
+                width: 100%;
+                min-width: 0; /* Reset min-width for print */
+                font-size: 9px; /* Smaller font for A4 */
+            }
+            th, td {
+                border: 1px solid #999; /* Darker border for print */
+                padding: 2px; /* Tighter padding for print */
+                line-height: 1.2; /* Tighter line height for print */
+                position: static; 
+             }
+             
+            #table-wrapper thead th:first-child,
+            td.day-header {
+                writing-mode: vertical-rl;
+                transform: rotate(180deg);
+                text-align: center;
+                padding: 5px 2px;
+            } 
+             
+             /* Ensure highlights are printed */
+            .highlight,
+            .highlight-primary,
+            .highlight-assistant,
+            .highlight-day,
+            .highlight-hour,
+            .highlight-current-period,
+            .highlight-next-period { 
+                 -webkit-print-color-adjust: exact; /* For Chrome */ 
+                 color-adjust: exact; /* Standard */
+            }
+            
+            .highlight {
+                background-color: var(--highlight-bg) !important;
+            }
+            .highlight-primary {
+                background-color: var(--highlight-primary) !important;
+            }
+            .highlight-assistant {
+                background-color: var(--highlight-assistant) !important;
+            }
+            .highlight-day {
+                background-color: var(--highlight-day-hour) !important;
+            }
+            .highlight-hour {
+                background-color: var(--highlight-hour-bg) !important;
+                color: #ffffff !important;
+            }
+            .highlight-current-period {
+                background-color: var(--highlight-current) !important;
+                color: #ffffff !important;
+            }
+            .highlight-current-period i,
+            .highlight-current-period b { 
+                 color: #ffffff !important;
+            }
+            .highlight-next-period {
+                background-color: var(--highlight-next) !important;
+                color: #ffffff !important;
+            }
+            .highlight-next-period i,
+            .highlight-next-period b { 
+                 color: #ffffff !important;
+            }
+            
+            tr.day-start td { 
+                 border-top: 2px solid var(--day-border-color) !important;
+            }
+            tr.day-end td { 
+                 border-bottom: 2px solid var(--day-border-color) !important;
+            }
+            tr.day-row td {
+                border-left: 2px solid var(--day-border-color) !important;
+                border-right: 2px solid var(--day-border-color) !important;
+            }
+            tr.day-row td.day-header {
+                border-right: 1px solid #999 !important;
+            }
+        }
+    </style>
+</head>
+<body>
+        <!-- --- Fullscreen Loader --- -->
+    <div id="full-loader">
+        <div class="spinner"></div>
+        <span>Loading Timetable...</span>
+    </div>
+
+    <div class="timetable-container">
+        
+        <div class="header-bar">
+            <h1 class="main-title">Department of English<br>Government Victoria College Palakkad</h1>
+            <div id="mini-clock"></div>
+        </div>
+        
+        <!-- --- Top Controls Bar --- -->
+        <div class="top-controls-bar">
+            <div>
+                <button id="refresh-button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                        <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                        <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                    </svg>
+                    <span>Refresh Data</span>
+                </button>
+            </div>
+            
+            <div class="controls">
+                <label for="faculty-select">Highlight Faculty:</label>
+                <select id="faculty-select">
+                    <option value="">-- Select Faculty --</option>
+                    <!-- Options will be populated by JS -->
+                </select>
+            </div>
+            
+            <div id="last-updated">
+                <!-- Last updated: ... -->
+            </div>
+        </div>
+        
+        <h2 class="sub-title">Faculty Timetable Dashboard</h2>
+        
+        <div id="error-container"></div>
+        
+        <!-- --- Personal View HTML --- -->
+        <div id="personal-view-container">
+            <div id="personal-view-header">
+                <h3 id="personal-view-title">Today's View: <span id="personal-faculty-name"></span></h3>
+                <button id="close-personal-view" title="Close personal view">&times;</button>
+            </div>
+            
+            <!-- Desktop View: Horizontal Table -->
+            <div id="personal-view-scroll-desktop" class="table-scroll-wrapper">
+                <table id="personal-view-table">
+                    <!-- JS will generate content here -->
+                </table>
+            </div>
+            
+            <!-- Mobile View: Vertical List -->
+            <div id="personal-view-list-mobile">
+                <!-- JS will generate content here -->
+            </div>
+            
+            <!-- Weekend/Error Message -->
+            <div id="personal-view-message" style="display: none;">
+                <!-- JS will fill this on weekends -->
+            </div>
+        </div>
+        <!-- --- End of Personal View HTML --- -->
+
+        <div class="table-scroll-wrapper" id="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Day</th>
+                        <th>Class</th>
+                        <th>9:30-10:30</th>
+                        <th>10:30-11:30</th>
+                        <th>11:30-12:30</th>
+                        <th>1:30-2:30</th>
+                        <th>2:30-3:30</th>
+                    </tr>
+                </thead>
+                <tbody id="main-timetable-body">
+                    <!-- This will be dynamically generated -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // --- Define Remote URL ---
+        const REMOTE_XML_URL = 'https://raw.githubusercontent.com/sureshmagnolia/englishtt/main/ttdata.xml';
+        
+        // --- Global Data Stores ---
+        let fullTimetableData = {}; // For Personal View
+        const timetableData = { // For XML Parsing
+            periods: [],
+            classes: [],
+            teachers: {},
+            subjects: {},
+            lessons: {},
+            cards: []
+        };
+        const DAYS_MAP = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+        const DAY_BITS = ['10000', '01000', '00100', '00010', '00001'];
+        const PERIODS = 5;
+
+        // Define period times for real-time highlighting
+        const periodTimes = [
+            { name: "P1", thIndex: 2, start: [9, 30], end: [10, 30] },
+            { name: "P2", thIndex: 3, start: [10, 30], end: [11, 30] },
+            { name: "P3", thIndex: 4, start: [11, 30], end: [12, 30] },
+            { name: "P4", thIndex: 5, start: [13, 30], end: [14, 30] }, // 1:30 PM - 2:30 PM
+            { name: "P5", thIndex: 6, start: [14, 30], end: [15, 30] }  // 2:30 PM - 3:30 PM
+        ];
+                
+        // --- UI Elements ---
+        const loader = document.getElementById('full-loader');
+        const container = document.querySelector('.timetable-container');
+        const refreshButton = document.getElementById('refresh-button');
+        const lastUpdatedSpan = document.getElementById('last-updated');
+        const errorContainer = document.getElementById('error-container');
+        const facultySelectElement = document.getElementById('faculty-select');
+
+        // --- Clock Function ---
+        function updateClock() {
+            const now = new Date();
+            let hours = now.getHours();
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            const seconds = now.getSeconds().toString().padStart(2, '0');
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            
+            hours = hours % 12;
+            hours = hours ? hours : 12; // the hour '0' should be '12'
+            const strHours = hours.toString().padStart(2, '0');
+            
+            const timeString = `${strHours}:${minutes}:${seconds} ${ampm}`;
+            const clockElement = document.getElementById('mini-clock');
+            if (clockElement) {
+                clockElement.innerHTML = timeString;
+            }
+        }
+
+        // --- XML Parsing Functions ---
+        function clearTimetableData() {
+            timetableData.periods = [];
+            timetableData.classes = [];
+            timetableData.teachers = {};
+            timetableData.subjects = {};
+            timetableData.lessons = {};
+            timetableData.cards = [];
+            fullTimetableData = {};
+        }
+
+        function parseXMLData(xmlDoc) {
+            clearTimetableData(); // Clear old data before parsing new
+            
+            const periodNodes = xmlDoc.getElementsByTagName('period');
+            for (let i = 0; i < periodNodes.length; i++) {
+                const period = periodNodes[i];
+                timetableData.periods.push({
+                    period: period.getAttribute('period'),
+                    name: period.getAttribute('name'),
+                    starttime: period.getAttribute('starttime'),
+                    endtime: period.getAttribute('endtime')
+                });
+            }
+
+            const teacherNodes = xmlDoc.getElementsByTagName('teacher');
+            for (let i = 0; i < teacherNodes.length; i++) {
+                const teacher = teacherNodes[i];
+                const id = teacher.getAttribute('id');
+                const short = teacher.getAttribute('short');
+                const name = teacher.getAttribute('name');
+                timetableData.teachers[id] = { short: short, name: name };
+            }
+
+            const subjectNodes = xmlDoc.getElementsByTagName('subject');
+            for (let i = 0; i < subjectNodes.length; i++) {
+                const subject = subjectNodes[i];
+                const id = subject.getAttribute('id');
+                // --- MODIFICATION 1: Store both short and full name ---
+                timetableData.subjects[id] = {
+                    short: subject.getAttribute('short'),
+                    name: subject.getAttribute('name')
+                };
+            }
+
+            const classNodes = xmlDoc.getElementsByTagName('class');
+            for (let i = 0; i < classNodes.length; i++) {
+                const cls = classNodes[i];
+                timetableData.classes.push({
+                    id: cls.getAttribute('id'),
+                    name: cls.getAttribute('name'),
+                    short: cls.getAttribute('short')
+                });
+            }
+            // Sort classes by their short name
+            timetableData.classes.sort((a, b) => a.short.localeCompare(b.short));
+
+
+            const lessonNodes = xmlDoc.getElementsByTagName('lesson');
+            for (let i = 0; i < lessonNodes.length; i++) {
+                const lesson = lessonNodes[i];
+                const id = lesson.getAttribute('id');
+                
+                // --- MODIFIED: Handle multiple teachers ---
+                const teacherIdsString = lesson.getAttribute('teacherids');
+                const teacherIdList = teacherIdsString ? teacherIdsString.split(',') : [];
+                // --- END MODIFIED ---
+
+                timetableData.lessons[id] = {
+                    id: id,
+                    classids: lesson.getAttribute('classids'),
+                    subjectid: lesson.getAttribute('subjectid'),
+                    teacherids: teacherIdList // Store as an array
+                };
+            }
+
+            const cardNodes = xmlDoc.getElementsByTagName('card');
+            for (let i = 0; i < cardNodes.length; i++) {
+                const card = cardNodes[i];
+                timetableData.cards.push({
+                    lessonid: card.getAttribute('lessonid'),
+                    period: card.getAttribute('period'),
+                    days: card.getAttribute('days'),
+                    weeks: card.getAttribute('weeks')
+                });
+            }
+        }
+
+        // --- Data Structure Builder ---
+        function buildSchedule() {
+            const schedule = {};
+            timetableData.classes.forEach(cls => {
+                schedule[cls.id] = {};
+                DAYS_MAP.forEach((day, dayIndex) => {
+                    schedule[cls.id][dayIndex] = {};
+                    for (let period = 1; period <= PERIODS; period++) {
+                        schedule[cls.id][dayIndex][period] = [];
+                    }
+                });
+            });
+
+            timetableData.cards.forEach(card => {
+                const lesson = timetableData.lessons[card.lessonid];
+                if (!lesson) return;
+
+                // --- MODIFICATION 2: Get both short and full subject names ---
+                const classId = lesson.classids;
+                const subjectData = timetableData.subjects[lesson.subjectid];
+                
+                // Get both names, with fallbacks
+                const subjectCode = subjectData ? subjectData.short : 'Unknown';
+                const subjectFullName = subjectData ? subjectData.name : 'Unknown';
+                // --- END MODIFICATION 2 ---
+                
+                // --- MODIFIED: Handle teacher array ---
+                const teacherIds = lesson.teacherids; // This is now an array, e.g., ['ID1', 'ID2']
+                const teacherCodes = teacherIds.map(tid => (timetableData.teachers[tid] ? timetableData.teachers[tid].short : 'TBD'));
+                // --- END MODIFIED ---
+
+                const period = parseInt(card.period);
+                const dayBits = card.days;
+
+                DAY_BITS.forEach((bit, dayIndex) => {
+                    if (dayBits === bit || (dayBits && dayBits.charAt(dayIndex) === '1')) {
+                        if (schedule[classId] && schedule[classId][dayIndex] && schedule[classId][dayIndex][period]) {
+                            
+                            // --- MODIFICATION 2 (continued): Push both names to the schedule ---
+                            schedule[classId][dayIndex][period].push({
+                                subject: subjectCode, // This is the short name (for main table)
+                                subjectFullName: subjectFullName, // This is the full name (for personal view)
+                                teachers: teacherCodes // Pass the array of codes, e.g., ['SV', 'SJ']
+                            });
+                        }
+                    }
+                });
+            });
+            return schedule;
+        }
+
+        // --- Dynamic Table Renderer ---
+        function renderTimetable(schedule) {
+            const tbody = document.getElementById('main-timetable-body');
+            if (!tbody) return;
+            
+            let html = '';
+            DAYS_MAP.forEach((day, dayIndex) => {
+                timetableData.classes.forEach((cls, clsIndex) => {
+                    const isFirstRow = (clsIndex === 0);
+                    const isLastRow = (clsIndex === timetableData.classes.length - 1);
+                    
+                    let rowClasses = "day-row";
+                    if(isFirstRow) rowClasses += " day-start";
+                    if(isLastRow) rowClasses += " day-end";
+                    
+                    html += `<tr class="${rowClasses}">`;
+                    if (isFirstRow) {
+                        html += `<td class="day-header" rowspan="${timetableData.classes.length}">${day}</td>`;
+                    }
+                    html += `<td class="class-name">${cls.short}</td>`;
+                    
+                    for (let period = 1; period <= PERIODS; period++) {
+                        const lessons = schedule[cls.id][dayIndex][period];
+                        if (lessons && lessons.length > 0) {
+                            
+                            // --- MODIFIED: Add data-attributes for highlighting ---
+                            const allTeacherArrays = lessons.map(l => l.teachers);
+                            const uniqueTeacherCodes = [...new Set(allTeacherArrays.flat())];
+                            const primaryTeacherCodes = [...new Set(lessons.map(l => l.teachers[0]))];
+
+                            html += `<td data-label="P${period}" 
+                                         data-teachers="${uniqueTeacherCodes.join(',')}" 
+                                         data-primary-teachers="${primaryTeacherCodes.join(',')}"
+                                     >`;
+                            // --- END MODIFIED ---
+
+                            // Note: This still uses 'l.subject' which is the SHORT name,
+                            // which is correct for the main table.
+                            html += lessons.map(l => `<b>${l.subject}</b><i>${l.teachers.join('/')}</i>`).join('<hr>');
+                            html += `</td>`;
+                        } else {
+                            html += `<td data-label="P${period}" class="empty-cell">-</td>`;
+                        }
+                    }
+                    html += '</tr>';
+                });
+            });
+            tbody.innerHTML = html;
+        }
+
+        // --- Personal View Parsers ---
+        function parseMainTimetableFromSchedule(schedule) {
+            const data = {};
+            // Get faculty codes from the parsed data
+            const facultyCodes = Object.values(timetableData.teachers).map(t => t.short);
+            
+            facultyCodes.forEach(code => {
+                data[code] = { "Mon": {}, "Tue": {}, "Wed": {}, "Thu": {}, "Fri": {} };
+            });
+
+            const dayMap = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+            
+            dayMap.forEach((dayName, dayIndex) => {
+                timetableData.classes.forEach(cls => {
+                    const className = cls.short;
+                    for (let period = 1; period <= PERIODS; period++) {
+                        const periodName = `P${period}`;
+                        const lessons = schedule[cls.id][dayIndex][period];
+                        
+                        if (lessons && lessons.length > 0) {
+                            lessons.forEach(lesson => {
+                                // --- MODIFIED: Handle teacher array for Personal View ---
+                                const teacherCodes = lesson.teachers; // e.g., ['SV', 'SJ']
+                                if (!teacherCodes || teacherCodes.length === 0) return;
+
+                                const primaryTeacherCode = teacherCodes[0];
+                                const displayNames = teacherCodes.join('/'); // "SV/SJ"
+
+                                teacherCodes.forEach(teacherCode => {
+                                    if (data[teacherCode]) {
+                                        if (!data[teacherCode][dayName][periodName]) {
+                                            data[teacherCode][dayName][periodName] = [];
+                                        }
+                                        
+                                        const isPrimary = (teacherCode === primaryTeacherCode);
+                                        
+                                        // --- MODIFICATION 3: Use 'lesson.subjectFullName' ---
+                                        data[teacherCode][dayName][periodName].push({
+                                            subject: lesson.subjectFullName, // <-- This now uses the FULL name
+                                            class: className,
+                                            names: displayNames, // "SV/SJ"
+                                            isPrimary: isPrimary
+                                        });
+                                        // --- END MODIFICATION 3 ---
+                                    }
+                                });
+                                // --- END MODIFIED ---
+                            });
+                        }
+                    }
+                });
+            });
+            return data;
+        }
+        
+        // --- HYBRID: Function to update the personal view table ---
+        function updatePersonalView(faculty, facultyName, currentP, nextP) {
+            const container = document.getElementById('personal-view-container');
+            const table = document.getElementById('personal-view-table');
+            const listDiv = document.getElementById('personal-view-list-mobile');
+            const message = document.getElementById('personal-view-message');
+            const scrollWrapper = document.getElementById('personal-view-scroll-desktop');
+            const nameSpan = document.getElementById('personal-faculty-name');
+            const title = document.getElementById('personal-view-title');
+
+            if (!faculty || !fullTimetableData[faculty]) {
+                container.style.display = 'none';
+                return;
+            }
+            // Show if not manually closed
+            if (localStorage.getItem('personalViewClosed') !== 'true') {
+                container.style.display = 'block';
+            }
+
+            const facultyData = fullTimetableData[faculty];
+            const days = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+            const periodNames = ["P1", "P2", "P3", "P4", "P5"];
+            const periodLabels = ["9:30-10:30", "10:30-11:30", "11:30-12:30", "1:30-2:30", "2:30-3:30"];
+            
+            const now = new Date();
+            const currentDayIndex = now.getDay() - 1; // 0=Mon, 1=Tue...
+            
+            let newListHtml = '';
+            let theadHtml = '<tr>';
+            let tbodyHtml = '<tr>';
+
+            // Check if it's a weekday (Mon-Fri)
+            if (currentDayIndex >= 0 && currentDayIndex < 5) {
+                const currentDayName = days[currentDayIndex];
+                
+                // Update title with day name
+                title.innerHTML = `Today's View (${currentDayName}): <span id="personal-faculty-name">${facultyName}</span>`;
+                message.style.display = 'none';
+                
+                // --- FIX: Reset inline display property ---
+                scrollWrapper.style.display = ''; 
+                listDiv.style.display = '';
+                // --- END FIX ---
+
+                periodNames.forEach((period, periodIndex) => {
+                    const periodData = facultyData[currentDayName][period]; // This is now an array of objects
+                    let detailsHtml = '';
+                    let detailsClass = ''; // This will be pink, blue, red, or orange
+                    let headerClass = ''; // For desktop table
+                    let timeClass = ''; // For mobile list
+
+                    // 1. Set details (class)
+                    if (periodData && periodData.length > 0) {
+                        // --- MODIFIED: Build HTML from objects ---
+                        const isPrimary = periodData[0].isPrimary;
+                        
+                        if (isPrimary) {
+                            detailsClass = 'highlight-primary'; // Pink
+                        } else {
+                            detailsClass = 'highlight-assistant'; // Blue
+                        }
+
+                        // This 'lesson.subject' is now the FULL NAME thanks to our change
+                        detailsHtml = periodData.map(lesson => {
+                            let nameDisplay = `<i>(${lesson.names})</i>`;
+                            if (!isPrimary) {
+                                nameDisplay = `<i>(${lesson.names}) (asst)</i>`;
+                            }
+                            return `<b>${lesson.subject}</b> <i>(${lesson.class})</i><br>${nameDisplay}`;
+                        }).join('<hr>');
+                        // --- END MODIFIED ---
+                    } else {
+                        detailsHtml = '<span class="empty-cell">No class scheduled</span>';
+                    }
+
+                    // 2. Check for highlights (This will OVERRIDE the pink/blue, which is correct)
+                    if (currentP && period === currentP.name) {
+                        detailsClass = 'highlight-current-period'; // Red
+                        headerClass = 'highlight-hour'; // Violet
+                        timeClass = 'highlight-hour'; // Violet
+                    }
+                    else if (nextP && period === nextP.name) {
+                        // Only apply 'next' if it's not already 'current'
+                        if (detailsClass !== 'highlight-current-period') {
+                            detailsClass = 'highlight-next-period'; // Orange
+                        }
+                    }
+                    
+                    // 3. Build HTML for BOTH views
+                    
+                    // Desktop Table
+                    theadHtml += `<th class="${headerClass}">${periodLabels[periodIndex]}</th>`;
+                    tbodyHtml += `<td class="${detailsClass}">${detailsHtml}</td>`;
+                    
+                    // Mobile List
+                    newListHtml += `
+                        <div class="personal-period">
+                            <div class="personal-period-time ${timeClass}">${periodLabels[periodIndex]}</div>
+                            <div class="personal-period-details ${detailsClass}">${detailsHtml}</div>
+                        </div>
+                    `;
+                });
+                
+                // 4. Populate Both Views
+                theadHtml += '</tr>';
+                tbodyHtml += '</tr>';
+                table.innerHTML = `<thead>${theadHtml}</thead><tbody>${tbodyHtml}</tbody>`;
+                listDiv.innerHTML = newListHtml;
+
+            } else {
+                // It's Saturday or Sunday
+                title.innerHTML = `Today's View: <span id="personal-faculty-name">${facultyName}</span>`;
+                message.innerHTML = 'No classes scheduled for today.';
+                message.style.display = 'block';
+                scrollWrapper.style.display = 'none'; // Hide the table
+                listDiv.style.display = 'none'; // Hide the list
+                table.innerHTML = ''; // Clear table
+                listDiv.innerHTML = ''; // Clear list
+            }
+        }
+
+        // --- Highlighting Function ---
+        function updateAllHighlights() {
+            const facultySelect = document.getElementById('faculty-select');
+            if (!facultySelect) return; 
+            
+            const selectedFaculty = facultySelect.value;
+            const selectedFacultyName = facultySelect.value ? facultySelect.options[facultySelect.selectedIndex].text : "";
+            const now = new Date();
+            const currentDay = now.getDay(); 
+            const currentHour = now.getHours();
+            const currentMinute = now.getMinutes();
+            const currentTime = currentHour * 60 + currentMinute; 
+
+            let currentPeriod = null;
+            let nextPeriod = null;
+
+            for (let i = 0; i < periodTimes.length; i++) {
+                const period = periodTimes[i];
+                const startTime = period.start[0] * 60 + period.start[1];
+                const endTime = period.end[0] * 60 + period.end[1];
+
+                if (currentTime >= startTime && currentTime < endTime) {
+                    currentPeriod = period;
+                    if (i + 1 < periodTimes.length) {
+                        const nextStartTime = periodTimes[i+1].start[0] * 60 + periodTimes[i+1].start[1];
+                        if (currentTime >= endTime && currentTime < nextStartTime) {
+                            currentPeriod = null; 
+                            nextPeriod = periodTimes[i+1];
+                        } else {
+                            nextPeriod = periodTimes[i+1];
+                        }
+                    }
+                    break; 
+                 } else if (currentTime < startTime) {
+                    nextPeriod = period;
+                    break;
+                }
+            }
+
+            // Remove all old highlights
+            document.querySelectorAll('.highlight, .highlight-primary, .highlight-assistant, .highlight-day, .highlight-hour, .highlight-current-period, .highlight-next-period').forEach(cell => {
+                cell.classList.remove('highlight', 'highlight-primary', 'highlight-assistant', 'highlight-day', 'highlight-hour', 'highlight-current-period', 'highlight-next-period');
+            });
+
+            // Update Personal View first (it's separate)
+            updatePersonalView(selectedFaculty, selectedFacultyName, currentPeriod, nextPeriod);
+
+            // --- MODIFIED: Main Table Highlighting ---
+            if (selectedFaculty) {
+                document.querySelectorAll('#table-wrapper tbody td[data-teachers]').forEach(cell => {
+                    const teachers = cell.dataset.teachers.split(',');
+                    const primaryTeachers = cell.dataset.primaryTeachers.split(',');
+
+                    if (teachers.includes(selectedFaculty)) {
+                        // Faculty is in this cell. Are they primary or assistant?
+                        if (primaryTeachers.includes(selectedFaculty)) {
+                            cell.classList.add('highlight-primary'); // Pink
+                        } else {
+                            cell.classList.add('highlight-assistant'); // Blue
+                        }
+                    }
+                });
+            }
+            // --- END MODIFIED ---
+
+            const dayHeaders = document.querySelectorAll('#table-wrapper td.day-header');
+            const periodHeaders = document.querySelectorAll('#table-wrapper thead th');
+            
+            if (currentDay >= 1 && currentDay <= 5 && dayHeaders[currentDay - 1]) {
+                dayHeaders[currentDay - 1].classList.add('highlight-day');
+            }
+
+            let currentDayRows = [];
+            if (currentDay >= 1 && currentDay <= 5 && dayHeaders[currentDay - 1]) { 
+                 let currentRow = dayHeaders[currentDay - 1].parentElement; 
+                 for (let i = 0; i < timetableData.classes.length; i++) {
+                     if(currentRow) {
+                        currentDayRows.push(currentRow);
+                        currentRow = currentRow.nextElementSibling;
+                     }
+                 }
+            }
+
+            if (currentPeriod) {
+                if (periodHeaders[currentPeriod.thIndex]) {
+                    periodHeaders[currentPeriod.thIndex].classList.add('highlight-hour');
+                }
+                if (selectedFaculty && currentDayRows.length > 0) {
+                    currentDayRows.forEach((row, rowIndex) => {
+                        const cellIndex = (rowIndex === 0) ? currentPeriod.thIndex : (currentPeriod.thIndex - 1);
+                        if (row.children[cellIndex]) { 
+                             const cell = row.children[cellIndex];
+                             // --- MODIFIED: Check for new classes ---
+                            if (cell && (cell.classList.contains('highlight-primary') || cell.classList.contains('highlight-assistant'))) {
+                                 cell.classList.remove('highlight-primary', 'highlight-assistant'); // Remove base color
+                                cell.classList.add('highlight-current-period'); // Add Red
+                            }
+                            // --- END MODIFIED ---
+                        }
+                    });
+                }
+            }
+
+            if (nextPeriod) {
+                if (selectedFaculty && currentDayRows.length > 0) {
+                    currentDayRows.forEach((row, rowIndex) => {
+                        const cellIndex = (rowIndex === 0) ? nextPeriod.thIndex : (nextPeriod.thIndex - 1);
+                        if (row.children[cellIndex]) { 
+                             const cell = row.children[cellIndex];
+                             // --- MODIFIED: Check for new classes ---
+                            if (cell && (cell.classList.contains('highlight-primary') || cell.classList.contains('highlight-assistant'))) {
+                                 cell.classList.remove('highlight-primary', 'highlight-assistant'); // Remove base color
+                                cell.classList.add('highlight-next-period'); // Add Orange
+                            }
+                            // --- END MODIFIED ---
+                        }
+                    });
+                }
+            }
+        }
+        
+        /**
+         * Populates the faculty dropdown list from parsed XML data
+         */
+        function populateFacultyDropdown() {
+            // Clear existing options except the first one
+            while (facultySelectElement.options.length > 1) {
+                facultySelectElement.remove(1);
+            }
+
+            // Get teachers and sort them by name
+            const sortedTeachers = Object.values(timetableData.teachers)
+                .sort((a, b) => a.name.localeCompare(b.name));
+
+            // Populate
+            sortedTeachers.forEach(teacher => {
+                const option = document.createElement('option');
+                option.value = teacher.short; // Use short name as value
+                option.textContent = `${teacher.name} (${teacher.short})`;
+                facultySelectElement.appendChild(option);
+            });
+
+            // Restore selection
+            const savedFaculty = localStorage.getItem('selectedFaculty');
+            if (savedFaculty) {
+                facultySelectElement.value = savedFaculty;
+            }
+        }
+
+        // --- Main Data/UI Orchestration ---
+        
+        /**
+         * Takes raw XML text, parses it, builds all data, and renders the table.
+         */
+        function parseAndRender(xmlText) {
+            try {
+                // 1. Parse XML
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+                if (xmlDoc.getElementsByTagName('parsererror').length > 0) {
+                    throw new Error('Error parsing XML file.');
+                }
+                
+                // 2. Populate data structures
+                parseXMLData(xmlDoc);
+                
+                // 2.5 Populate faculty dropdown
+                populateFacultyDropdown();
+
+                // 3. Build schedule object
+                const schedule = buildSchedule();
+                
+                // 4. Render main table HTML
+                renderTimetable(schedule);
+                
+                // 5. Build data for personal view
+                fullTimetableData = parseMainTimetableFromSchedule(schedule);
+                
+                // 6. Initialize all UI features
+                initializeUI();
+                
+                // 7. Hide loader and show content
+                loader.style.display = 'none';
+                container.style.visibility = 'visible';
+                container.style.opacity = '1';
+
+            } catch (error) {
+                console.error("Error in parseAndRender:", error);
+                showError(`Failed to parse and render timetable. ${error.message}`);
+                loader.style.display = 'none';
+            }
+        }
+        
+        /**
+         * Fetches remote XML, compares to local, and updates if needed.
+         */
+        async function fetchRemoteData(isForced = false) {
+            refreshButton.classList.add('loading');
+            errorContainer.style.display = 'none';
+
+            try {
+                const response = await fetch(REMOTE_XML_URL + '?cachebust=' + new Date().getTime()); // Cache bust
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch XML: ${response.status} ${response.statusText}`);
+                }
+                const newXMLText = await response.text();
+                const oldXMLText = localStorage.getItem('timetableXML');
+                
+                // Update if forced, or if data is different from cache
+                if (isForced || newXMLText !== oldXMLText) {
+                    localStorage.setItem('timetableXML', newXMLText);
+                    const lastUpdated = new Date();
+                    localStorage.setItem('timetableLastUpdated', lastUpdated.toISOString());
+                    
+                    parseAndRender(newXMLText); // Re-render the whole page
+                    
+                    if (isForced) {
+                        console.log('Timetable refreshed successfully.');
+                    } else {
+                        console.log('Timetable updated in background.');
+                    }
+                } else {
+                    console.log('Timetable is already up-to-date.');
+                }
+                
+                updateLastUpdatedTimestamp();
+
+            } catch (error) {
+                console.error("Error fetching remote data:", error);
+                if (isForced) { 
+                     showError(`Failed to refresh data. ${error.message}`);
+                }
+                // If not forced, it's a background check, so we fail silently
+            } finally {
+                refreshButton.classList.remove('loading');
+            }
+        }
+        
+        // --- Flag to prevent multiple initializations ---
+        let isUIInitialized = false;
+
+        /**
+         * Initializes all UI event listeners (called once).
+         */
+        function initializeUI() {
+            // Only run this once
+            if (isUIInitialized) {
+                updateAllHighlights(); // Just refresh highlights if already initialized
+                return;
+            }
+            
+            console.log("Initializing UI...");
+            
+            updateClock();
+            setInterval(updateClock, 1000); 
+            
+            const facultySelect = document.getElementById('faculty-select');
+            facultySelect.addEventListener('change', function() {
+                localStorage.setItem('selectedFaculty', this.value);
+                localStorage.setItem('personalViewClosed', 'false');
+                updateAllHighlights();
+            });
+            
+            const closeButton = document.getElementById('close-personal-view');
+            closeButton.addEventListener('click', () => {
+                document.getElementById('personal-view-container').style.display = 'none';
+                localStorage.setItem('personalViewClosed', 'true');
+            });
+            
+            refreshButton.addEventListener('click', () => fetchRemoteData(true));
+            
+            // Load saved faculty selection
+            const savedFaculty = localStorage.getItem('selectedFaculty');
+            if (savedFaculty) {
+                facultySelect.value = savedFaculty;
+            }
+            
+            updateAllHighlights();
+            
+            // --- REMOVED: Auto-scroll to current day ---
+            
+            setInterval(updateAllHighlights, 30000);
+            
+            isUIInitialized = true; // Set flag
+        }
+        
+        function updateLastUpdatedTimestamp() {
+            const timestamp = localStorage.getItem('timetableLastUpdated');
+            if (timestamp) {
+                lastUpdatedSpan.textContent = `Last updated: ${new Date(timestamp).toLocaleString()}`;
+            } else {
+                lastUpdatedSpan.textContent = 'No local data found.';
+            }
+        }
+        
+        function showError(message) {
+            errorContainer.textContent = message;
+            errorContainer.style.display = 'block';
+        }
+
+        /**
+         * Main entry point on page load.
+         */
+        function loadInitialData() {
+            const localXML = localStorage.getItem('timetableXML');
+            updateLastUpdatedTimestamp();
+
+            if (localXML) {
+                // 1. Local data exists: Render it immediately for a fast load
+                console.log("Rendering from local storage...");
+                try {
+                    parseAndRender(localXML);
+                } catch (e) {
+                    console.error("Error parsing local XML, fetching from remote...", e);
+                    localStorage.removeItem('timetableXML'); // Clear bad data
+                    fetchRemoteData(true); // Force fetch
+                }
+                
+                // 2. Then, check for updates in the background
+                console.log("Checking for remote updates...");
+                fetchRemoteData(false); // false = not forced, will run silently
+            } else {
+                // 1. No local data: Show loader and fetch for the first time
+                console.log("No local data. Fetching from remote...");
+                loader.style.display = 'flex';
+                fetchRemoteData(true); // true = forced, will show errors if it fails
+            }
+        }
+
+        // --- Start the application ---
+        document.addEventListener('DOMContentLoaded', loadInitialData);
+
+    </script>
+</body>
+</html>
